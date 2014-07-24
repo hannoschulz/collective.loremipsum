@@ -65,6 +65,7 @@ log = logging.getLogger(__name__)
 def create_subobjects(root, context, data, total=0):
     amount = int(data.get('amount', 3))
     types = data.get('portal_type')
+    log.info('Create in %s types of %s' % (context, str(types)))
     request = getRequest()
 
     depth = 0
@@ -81,13 +82,13 @@ def create_subobjects(root, context, data, total=0):
     if types is None or depth > 0:
         base = aq_base(context)
         if IBaseContent.providedBy(base):
-            types = []
+            ltypes = []
             if hasattr(base, 'constrainTypesMode') and base.constrainTypesMode:
-                types = context.locallyAllowedTypes
+                ltypes = context.locallyAllowedTypes
         elif IDexterityContent.providedBy(base):
             fti = component.getUtility(IDexterityFTI, name=context.portal_type)
-            types = fti.filter_content_types and fti.allowed_content_types
-            if not types:
+            ltypes = fti.filter_content_types and fti.allowed_content_types
+            if not ltypes:
                 msg = _('Either restrict the addable types in this folder '
                         'or provide a type argument.')
                 addStatusMessage(request, msg)
@@ -99,6 +100,8 @@ def create_subobjects(root, context, data, total=0):
                     "it. Why don't you jump in and help?")
             addStatusMessage(request, msg)
             return total
+        if ltypes:
+            types = [x for x in types if x in ltypes]
 
     recurse = False
     if data.get('recurse', None) not in [None, '0', 'False', False] and \
@@ -121,7 +124,7 @@ def create_subobjects(root, context, data, total=0):
                     elif shasattr(obj, 'allowedContentTypes'):
                         data['portal_type'] = \
                             [t.id for t in obj.allowedContentTypes()]
-
+                log.info('Create in %s types of %s' % (context, str(data.get('portal_type'))))
                 total = create_subobjects(root, obj, data, total)
     return total
 
@@ -158,6 +161,9 @@ def create_object(context, portal_type, data):
             title
         )
     data['title'] = title
+    if 'Folder' in portal_type:
+        folder_title_length = data.get('folder_title_length', 20)
+        data['title'] = data['title'][:folder_title_length]
     unique_id = generate_unique_id(context, title, portal_type)
     args = {'id': unique_id}
     if portal_type in ['Image', 'File']:
@@ -184,7 +190,10 @@ def create_object(context, portal_type, data):
 
     # set same language as parent
     obj.setLanguage(context.Language())
-    obj.reindexObject()
+    try:
+        obj.reindexObject()
+    except ValueError:
+        log.error("Failed reindex on %s" % str(obj))
     log.info('%s Object created' % obj.portal_type)
     if data.get('commit'):
         transaction.commit()
@@ -256,13 +265,13 @@ def get_value_for_choice(obj, field):
         results = catalog(**criteria)
         if not len(results):
             return
-        value = results[random.randint(0, len(results)-1)].getObject()
+        value = results[random.randint(0, len(results) - 1)].getObject()
     else:
         if interfaces.ITreeVocabulary.providedBy(vocabulary) or \
                 not len(vocabulary):
             # Can't yet deal with tree vocabs
             return
-        index = random.randint(0, len(vocabulary)-1)
+        index = random.randint(0, len(vocabulary) - 1)
         value = vocabulary._terms[index].token
     return value
 
@@ -285,7 +294,7 @@ def get_dummy_dexterity_value(obj, widget, data):
                 IUserAndGroupSelectionWidget.providedBy(widget):
             mtool = api.portal.get_tool('portal_membership')
             mids = mtool.listMemberIds()
-            value = mids[random.randint(0, len(mids)-1 or 1)]
+            value = mids[random.randint(0, len(mids) - 1 or 1)]
         else:
             length = getattr(field, 'max_length', None)
             value = unicode(get_text_line()[:length])
@@ -300,11 +309,11 @@ def get_dummy_dexterity_value(obj, widget, data):
         value = unicode(get_rich_text(data))
 
     elif interfaces.IDatetime.providedBy(field):
-        days = random.random()*10 * (random.randint(-1, 1) or 1)
+        days = random.random() * 10 * (random.randint(-1, 1) or 1)
         value = datetime.datetime.now() + datetime.timedelta(days, 0)
 
     elif interfaces.IDate.providedBy(field):
-        days = random.random()*10 * (random.randint(-1, 1) or 1)
+        days = random.random() * 10 * (random.randint(-1, 1) or 1)
         value = datetime.datetime.now() + datetime.timedelta(days, 0)
 
     return value
@@ -375,7 +384,7 @@ def populate_archetype(obj, data):
                 IVocabulary.providedBy(field.vocabulary):
 
             vocab = field.vocabulary.getVocabularyDict(obj)
-            value = vocab.keys()[random.randint(0, len(vocab.keys())-1)]
+            value = vocab.keys()[random.randint(0, len(vocab.keys()) - 1)]
 
         elif atfield.IStringField.providedBy(field):
             validators = [v[0].name for v in field.validators]
@@ -394,7 +403,10 @@ def populate_archetype(obj, data):
                 value = get_text_paragraph()
 
         elif atfield.IBooleanField.providedBy(field):
-            value = random.randint(0, 1) and True or False
+            if 'Folder' == obj.portal_type:
+                value = random.choice((0, 0, 0, 0, 1))
+            else:
+                value = random.randint(0, 1) and True or False
         else:
             continue
 
@@ -408,10 +420,10 @@ def populate_archetype(obj, data):
         subject.set(obj, subjects[:4])
 
     if IATEvent.providedBy(obj):
-        days = random.random()*20 * (random.randint(-1, 1) or 1)
+        days = random.random() * 20 * (random.randint(-1, 1) or 1)
         value = DateTime() + days
         obj.setStartDate(value)
-        obj.setEndDate(value+random.random()*3)
+        obj.setEndDate(value + random.random() * 3)
 
     # Set Images
     generate_image = data.get('generate_images') or obj.portal_type == 'Image'

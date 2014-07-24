@@ -140,6 +140,14 @@ class IPopulateFormSchema(interface.Interface):
         required=False,
     )
 
+    folder_title_length = schema.Int(
+        title=_(u"Folder title length"),
+        description=_(
+            u"Length of a folder title."),
+        required=True,
+        default=20,
+    )
+
     formatting = schema.List(
         title=_(u"Rich Text Formatting"),
         description=_(
